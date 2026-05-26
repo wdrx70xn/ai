@@ -231,43 +231,117 @@ httpPolicyClient({
 });
 ```
 
-## Transitive enforcement: a composite `bash` tool
+## Transitive enforcement: composite tools
 
-`toolApproval` only fires when the model calls a tool directly. To extend the same rules into a composite tool, read `policy` from the `execute` options bag:
+`toolApproval` only fires when the model calls a tool directly. Anywhere your agent has a coarse "dispatcher" tool that can perform many fine-grained actions, the model can bypass the rules by going through the coarse tool. The fix is the same in every case: inside the dispatcher's `execute`, derive a `(name, args)` pair for the nested action and call `policy.check` before performing the side effect.
 
 ```ts
-import { tool } from 'ai';
-import * as z from 'zod/v4';
+const decision = await policy?.check(name, args);
+if (decision?.type === 'denied') return denyResult(decision.reason);
+if (decision?.type === 'user-approval') return needsHumanResult(name);
+// approved or not-applicable: proceed with the side effect.
+```
 
+The shape of "derive a `(name, args)` pair" depends on the tool. A few common patterns:
+
+### SQL dispatcher
+
+```ts
+const db = tool({
+  description: 'Run a SQL statement',
+  inputSchema: z.object({ sql: z.string() }),
+  execute: async ({ sql }, { policy }) => {
+    const verb = sql.trim().split(/\s+/)[0].toLowerCase(); // select | insert | delete | drop
+    const decision = await policy?.check(`db.${verb}`, { sql });
+    if (decision?.type === 'denied') return { error: decision.reason };
+    return await pg.query(sql);
+  },
+});
+```
+
+The Rego policy can now write rules like `input.tool.name == "db.delete"` or `input.tool.name == "db.drop"` and they'll fire whether the model called those granular tools directly or routed a `DROP TABLE` through `db.query`.
+
+### HTTP dispatcher
+
+```ts
+const http = tool({
+  description: 'Make an HTTP request',
+  inputSchema: z.object({
+    url: z.string(),
+    method: z.enum(['GET', 'POST', 'PUT', 'DELETE']),
+    body: z.unknown().optional(),
+  }),
+  execute: async ({ url, method, body }, { policy }) => {
+    const host = new URL(url).host;
+    const decision = await policy?.check(`http.${method.toLowerCase()}`, { host, url, body });
+    if (decision?.type === 'denied') return { error: decision.reason };
+    return await fetch(url, { method, body: JSON.stringify(body) });
+  },
+});
+```
+
+Rules can match by host (`input.args.host == "api.production.internal"`) or by method (`input.tool.name == "http.delete"`).
+
+### MCP proxy
+
+```ts
+const mcp = tool({
+  description: 'Invoke a tool exposed by an MCP server',
+  inputSchema: z.object({ tool: z.string(), args: z.unknown() }),
+  execute: async ({ tool: name, args }, { policy }) => {
+    const decision = await policy?.check(`mcp.${name}`, args);
+    if (decision?.type === 'denied') return { error: decision.reason };
+    return await mcpClient.callTool(name, args);
+  },
+});
+```
+
+This is the primary motivating case from the RFC: MCP servers expose their entire tool surface as one bundle, and a single `mcp.invoke` meta-tool turns that into one giant `*`-shaped capability for the agent. The check above narrows it back to whatever your Rego policy says is allowed.
+
+### Browser dispatcher
+
+```ts
+const browser = tool({
+  description: 'Drive the browser',
+  inputSchema: z.object({ action: z.enum(['click', 'type', 'navigate']), target: z.string() }),
+  execute: async ({ action, target }, { policy }) => {
+    const decision = await policy?.check(`browser.${action}`, { target });
+    if (decision?.type === 'denied') return { error: decision.reason };
+    return await page[action](target);
+  },
+});
+```
+
+### Shell dispatcher
+
+```ts
 const bash = tool({
   description: 'Run a shell command',
   inputSchema: z.object({ cmd: z.string() }),
   execute: async ({ cmd }, { policy }) => {
     const [name, ...args] = cmd.split(/\s+/);
-
-    // Re-check the same toolApproval config that gates direct calls.
     const decision = await policy?.check(name, { args });
-
-    if (decision?.type === 'denied') {
-      return { error: 'blocked by policy', reason: decision.reason };
-    }
-    if (decision?.type === 'user-approval') {
-      // v1: return an error and let the model retry.
-      // Surfacing this as an approval-request for the child action is a
-      // follow-up (see the RFC's "nested user-approval" section).
-      return { error: 'requires human approval', tool: name };
-    }
-
-    return await exec(cmd);
+    if (decision?.type === 'denied') return { error: decision.reason };
+    return await execFile(name, args);
   },
 });
 ```
 
-The SDK provides `policy` in the options bag during normal dispatch. It is optional in the type (so hand-constructed `ToolExecutionOptions` in tests do not break), but at runtime it is always present.
+### The pattern, abstracted
+
+Every example above is the same five lines:
+
+1. Derive a `(name, args)` pair from the dispatcher's input.
+2. `await policy?.check(name, args)`.
+3. On `denied`, return a structured error so the model can reason about it.
+4. On `user-approval`, return an error directing the model to retry through a granular tool (v1). Full nested-approval surfacing is a follow-up.
+5. Otherwise, perform the side effect.
+
+What changes per domain is only step 1 (the parsing) and step 5 (the actual side effect). The SDK provides `policy` in the options bag during normal dispatch; it's optional in the type so hand-constructed `ToolExecutionOptions` in tests do not break.
 
 ### The honest limitation
 
-The SDK cannot force a tool author to call `policy.check`. A hand-rolled `bash` written as `execute: async ({ cmd }) => exec(cmd)` will bypass the policy layer entirely. The framework's job is to make the right pattern the default path; the canonical wrappers (`shell()`, `httpRequest()`, `browserAction()` — coming soon) will implement the check internally so you don't write it yourself. For stronger guarantees, run untrusted code in an out-of-band sandbox (Vercel Sandbox, Firecracker, containers).
+The SDK cannot force a tool author to make the check. A dispatcher written as `execute: async ({ cmd }) => exec(cmd)` bypasses the policy layer entirely. The framework's job is to make the right pattern obvious and one-step; that's what this section documents. For stronger guarantees against an actively adversarial tool author, run untrusted execution in an out-of-band sandbox (Vercel Sandbox, Firecracker, containers).
 
 ## API
 
