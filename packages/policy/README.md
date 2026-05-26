@@ -390,6 +390,38 @@ Each event carries both the policy's verdict (`decision`) and what the SDK actua
 
 If you want the opposite (enforcement waits for the audit log to commit), call your logger from inside the underlying `toolApproval` instead of through `shadow`.
 
+## Defense in depth: capability scoping at the model boundary
+
+`toolApproval` enforces policy when the model **tries to call** a tool. `opaCapabilityMiddleware` enforces it earlier — before the model is even told the tool exists. This is defense in depth: if a bug or regression lets something slip through the call-time gate, the middleware still prevents the model from seeing the disallowed tool in its first place.
+
+```ts
+import { wrapLanguageModel } from 'ai';
+import { wasmPolicyClient, opaCapabilityMiddleware } from '@ai-sdk/policy/opa';
+
+const client = await wasmPolicyClient({ wasm });
+
+const wrappedModel = wrapLanguageModel({
+  model: anthropic('claude-sonnet-4-5'),
+  middleware: opaCapabilityMiddleware({
+    client,
+    path: 'agent/tools/allowed',
+  }),
+});
+
+await generateText({ model: wrappedModel, tools, toolApproval, prompt });
+```
+
+The Rego rule at `path` returns either a `string[]` of allowed tool names or `{ tools: string[] }`. Anything in `params.tools` whose `name` (function tools) or `id` (provider tools) is not in the allowlist gets dropped before the model sees the list.
+
+Two non-obvious benefits beyond the security one:
+
+- **Token savings.** The model doesn't read descriptions for tools it cannot call.
+- **Better jailbreak rejection.** When the model is steered toward a denied tool, it responds with "I don't have access to that" rather than producing a tool call that gets blocked by `toolApproval`, which reads as friendlier in chat UIs.
+
+### Failure mode
+
+On a malformed OPA response or an evaluator error, the middleware **fails closed**: `params.tools` is set to `undefined`, so the model is told it has no tools available at all. Misconfiguration should not silently widen the agent's capability surface. If you want fail-open behavior, write the policy fallback in Rego (e.g., a default rule that returns the full tool list) rather than in the middleware.
+
 ## Scoping a discovered tool surface
 
 When tools come from somewhere external (MCP discovery, a plugin registry, a remote agent catalog) you do not get to write per-tool rules ahead of time — you don't know which tools the server will expose until runtime. The risk: any tool you forgot to write a rule for is silently allowed.
@@ -434,6 +466,7 @@ Despite the name, the helper works on any `Record<string, Tool>`, not just MCP-d
 - `wasmPolicyClient({ wasm, data? })` — async; loads a compiled OPA WASM bundle in-process. Optional `data` is passed to `setData` if the bundle exposes it.
 - `httpPolicyClient({ url, headers? })` — sync; constructs a client against a running OPA server.
 - `opaPolicy({ client, path, toInput? })` — returns a `ToolApprovalConfiguration` you pass to `generateText` / `streamText` / `ToolLoopAgent`.
+- `opaCapabilityMiddleware({ client, path, toInput? })` — returns a `LanguageModelV4Middleware` that narrows `params.tools` to an OPA-supplied allowlist before the model sees them. Fails closed on malformed responses.
 - `normalizeOpaDecision(result)` — exposed for users who want to call OPA themselves and just need the result normalization.
 
 ## Versioning

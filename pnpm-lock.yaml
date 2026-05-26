@@ -2756,6 +2756,9 @@ importers:
 
   packages/policy:
     dependencies:
+      '@ai-sdk/provider':
+        specifier: workspace:*
+        version: link:../provider
       '@ai-sdk/provider-utils':
         specifier: workspace:*
         version: link:../provider-utils
