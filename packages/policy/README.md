@@ -265,39 +265,16 @@ const bash = tool({
 
 The SDK provides `policy` in the options bag during normal dispatch. It is optional in the type (so hand-constructed `ToolExecutionOptions` in tests do not break), but at runtime it is always present.
 
-### The same thing with `shell()`
-
-Writing the check by hand is fine but tedious if you have several composite tools. `shell()` is the canonical wrapper that implements the pattern for you:
-
-```ts
-import { shell } from '@ai-sdk/policy';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const run = promisify(execFile);
-
-const bash = shell({
-  routes: { git: 'git', kubectl: 'kubectl' },
-  exec: async ({ tool, args }) => {
-    const { stdout } = await run(tool, args);
-    return stdout;
-  },
-});
-```
-
-`routes` maps the first word of the shell command to the registered tool name to authorize against (so you can have `g` route to the `git` rule, or expose `kc` as an alias for `kubectl`). The wrapper parses the command, calls `policy.check(routes[first], { args })`, returns a structured deny if blocked, and only invokes `exec` when the decision is `approved` / `not-applicable`. `httpRequest()` and `browserAction()` will follow the same shape.
-
 ### The honest limitation
 
-The SDK cannot force a tool author to call `policy.check`. A hand-rolled `bash` written as `execute: async ({ cmd }) => exec(cmd)` will bypass the policy layer entirely. The framework's job is to make the right pattern the default path; the canonical wrappers (`shell()` today, `httpRequest()` / `browserAction()` next) implement the check internally so you don't write it yourself. For stronger guarantees, run untrusted code in an out-of-band sandbox (Vercel Sandbox, Firecracker, containers).
+The SDK cannot force a tool author to call `policy.check`. A hand-rolled `bash` written as `execute: async ({ cmd }) => exec(cmd)` will bypass the policy layer entirely. The framework's job is to make the right pattern the default path; the canonical wrappers (`shell()`, `httpRequest()`, `browserAction()` — coming soon) will implement the check internally so you don't write it yourself. For stronger guarantees, run untrusted code in an out-of-band sandbox (Vercel Sandbox, Firecracker, containers).
 
 ## API
 
 ### `@ai-sdk/policy`
 
-- `shell({ routes, exec, parse?, description? })` — canonical composite-tool wrapper that re-checks `toolApproval` before running `exec`.
 - `PolicyClient` — interface implemented by the OPA backends. Use directly if you want to plug in a non-OPA engine.
-- Type re-exports: `PolicyChecker`, `PolicyDecision` (from `@ai-sdk/provider-utils`); helpers `ParsedShellInvocation`, `ShellResult`.
+- Type re-exports: `PolicyChecker`, `PolicyDecision` (from `@ai-sdk/provider-utils`).
 
 ### `@ai-sdk/policy/opa`
 
