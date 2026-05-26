@@ -343,6 +343,42 @@ What changes per domain is only step 1 (the parsing) and step 5 (the actual side
 
 The SDK cannot force a tool author to make the check. A dispatcher written as `execute: async ({ cmd }) => exec(cmd)` bypasses the policy layer entirely. The framework's job is to make the right pattern obvious and one-step; that's what this section documents. For stronger guarantees against an actively adversarial tool author, run untrusted execution in an out-of-band sandbox (Vercel Sandbox, Firecracker, containers).
 
+## Optional policy: allow-all when no policy is configured
+
+Most apps load the policy from one source (a WASM bundle, a remote OPA server) and only want enforcement when that source is available. In local development, in CI, in a brand-new environment, you probably want the agent to just work without a policy file present.
+
+`optionalOpaPolicy` makes this case a one-liner: pass `client: undefined` and the helper returns `undefined`, which is the same as not passing `toolApproval` at all (the SDK approves every tool call).
+
+```ts
+import { readFile } from 'node:fs/promises';
+import {
+  optionalOpaPolicy,
+  wasmPolicyClient,
+} from '@ai-sdk/policy/opa';
+
+const wasm = process.env.POLICY_WASM_PATH
+  ? await readFile(process.env.POLICY_WASM_PATH)
+  : undefined;
+
+const client = wasm ? await wasmPolicyClient({ wasm }) : undefined;
+
+const toolApproval = optionalOpaPolicy({
+  client,
+  path: 'agent/call/decision',
+});
+
+await generateText({ model, tools, toolApproval, prompt });
+```
+
+Behavior:
+
+- `POLICY_WASM_PATH` unset ➜ `client` is `undefined` ➜ `toolApproval` is `undefined` ➜ SDK allows all tool calls. The OPA modules are never loaded; lazy imports stay lazy.
+- `POLICY_WASM_PATH` set ➜ policy loads, enforcement is on.
+
+A symmetric option exists for the HTTP backend: gate `httpPolicyClient({ url })` on whether `OPA_URL` is set.
+
+If you want stricter behavior (refuse to start without a policy), construct `opaPolicy` directly and let the missing-bytes case throw at startup. The "optional" framing is only for environments where you've intentionally decided absence means allow-all.
+
 ## Rolling out a new policy safely: shadow mode
 
 Don't ship a new policy straight to enforce. The first version of any policy almost certainly denies things you didn't mean to deny, and you find out by breaking real agent runs. The fix is the same pattern Cloudflare uses for new rules and GitHub uses for new code-scanning checks: run the policy in **shadow mode** for a while, capture what it *would* have decided, inspect, fix, then graduate.
@@ -466,6 +502,7 @@ Despite the name, the helper works on any `Record<string, Tool>`, not just MCP-d
 - `wasmPolicyClient({ wasm, data? })` — async; loads a compiled OPA WASM bundle in-process. Optional `data` is passed to `setData` if the bundle exposes it.
 - `httpPolicyClient({ url, headers? })` — sync; constructs a client against a running OPA server.
 - `opaPolicy({ client, path, toInput? })` — returns a `ToolApprovalConfiguration` you pass to `generateText` / `streamText` / `ToolLoopAgent`.
+- `optionalOpaPolicy({ client, path, toInput? })` — like `opaPolicy` but returns `undefined` when `client` is `undefined`, for environments where the policy file is optional and absence means allow-all.
 - `opaCapabilityMiddleware({ client, path, toInput? })` — returns a `LanguageModelV4Middleware` that narrows `params.tools` to an OPA-supplied allowlist before the model sees them. Fails closed on malformed responses.
 - `normalizeOpaDecision(result)` — exposed for users who want to call OPA themselves and just need the result normalization.
 

@@ -83,3 +83,53 @@ export function opaPolicy<
     return normalizeOpaDecision(result);
   };
 }
+
+/**
+ * Optional variant of {@link opaPolicy} that gracefully degrades when no
+ * policy backend is available.
+ *
+ * Returns `undefined` when `client` is `undefined` — pass that directly as
+ * `toolApproval` and the SDK falls back to its default allow-all behavior.
+ * When `client` is supplied, behaves exactly like {@link opaPolicy}.
+ *
+ * Use this when the policy file is configured per environment (e.g. loaded
+ * in production, absent in local development):
+ *
+ * ```ts
+ * import { readFile } from 'node:fs/promises';
+ * import { optionalOpaPolicy, wasmPolicyClient } from '@ai-sdk/policy/opa';
+ *
+ * const wasm = process.env.POLICY_WASM_PATH
+ *   ? await readFile(process.env.POLICY_WASM_PATH)
+ *   : undefined;
+ * const client = wasm ? await wasmPolicyClient({ wasm }) : undefined;
+ *
+ * const toolApproval = optionalOpaPolicy({
+ *   client,
+ *   path: 'agent/call/decision',
+ * });
+ *
+ * await generateText({ model, tools, toolApproval, prompt });
+ * ```
+ */
+export function optionalOpaPolicy<
+  TOOLS extends ToolSet = ToolSet,
+  RUNTIME_CONTEXT extends Context | unknown | never = unknown,
+>(opts: {
+  client: PolicyClient | undefined;
+  path: string;
+  toInput?: (args: {
+    toolCall: { toolName: string; toolCallId: string; input: unknown };
+    tools: TOOLS | undefined;
+    toolsContext: InferToolSetContext<TOOLS>;
+    runtimeContext: RUNTIME_CONTEXT;
+    messages: ModelMessage[];
+  }) => unknown;
+}): ToolApprovalConfiguration<TOOLS, RUNTIME_CONTEXT> | undefined {
+  if (opts.client == null) return undefined;
+  return opaPolicy<TOOLS, RUNTIME_CONTEXT>({
+    client: opts.client,
+    path: opts.path,
+    toInput: opts.toInput,
+  });
+}

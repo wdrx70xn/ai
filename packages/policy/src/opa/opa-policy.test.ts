@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PolicyClient } from '../policy-client';
-import { opaPolicy } from './opa-policy';
+import { opaPolicy, optionalOpaPolicy } from './opa-policy';
 
 function stubClient(decision: unknown): PolicyClient {
   return {
@@ -146,5 +146,43 @@ describe('opaPolicy', () => {
       action: 'git',
       principal: 'reviewer',
     });
+  });
+});
+
+describe('optionalOpaPolicy', () => {
+  it('returns undefined when no client is supplied', () => {
+    const approval = optionalOpaPolicy({
+      client: undefined,
+      path: 'agent/call/decision',
+    });
+    expect(approval).toBeUndefined();
+  });
+
+  it('delegates to opaPolicy when a client is supplied', async () => {
+    const client = stubClient({ decision: 'allow' });
+    const approval = optionalOpaPolicy({
+      client,
+      path: 'agent/call/decision',
+    });
+
+    if (typeof approval !== 'function') {
+      throw new Error('expected generic approval function');
+    }
+
+    const status = await approval({
+      toolCall: {
+        type: 'tool-call',
+        toolCallId: 'call-1',
+        toolName: 'git',
+        input: { args: ['status'] },
+        dynamic: false,
+      } as never,
+      tools: undefined,
+      toolsContext: undefined as never,
+      runtimeContext: undefined,
+      messages: [],
+    });
+
+    expect(status).toEqual({ type: 'approved' });
   });
 });

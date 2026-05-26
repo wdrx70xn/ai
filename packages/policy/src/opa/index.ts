@@ -1,6 +1,10 @@
 export { httpPolicyClient } from './http-policy-client';
 export { wasmPolicyClient } from './wasm-policy-client';
-export { opaPolicy, type DefaultOpaInput } from './opa-policy';
+export {
+  opaPolicy,
+  optionalOpaPolicy,
+  type DefaultOpaInput,
+} from './opa-policy';
 export {
   opaCapabilityMiddleware,
   type DefaultOpaCapabilityInput,
