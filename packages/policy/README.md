@@ -343,12 +343,43 @@ What changes per domain is only step 1 (the parsing) and step 5 (the actual side
 
 The SDK cannot force a tool author to make the check. A dispatcher written as `execute: async ({ cmd }) => exec(cmd)` bypasses the policy layer entirely. The framework's job is to make the right pattern obvious and one-step; that's what this section documents. For stronger guarantees against an actively adversarial tool author, run untrusted execution in an out-of-band sandbox (Vercel Sandbox, Firecracker, containers).
 
+## Scoping a discovered tool surface
+
+When tools come from somewhere external (MCP discovery, a plugin registry, a remote agent catalog) you do not get to write per-tool rules ahead of time — you don't know which tools the server will expose until runtime. The risk: any tool you forgot to write a rule for is silently allowed.
+
+`wrapMcpTools` closes that gap by making the resulting `toolApproval` configuration **total** over the discovered surface. Any tool the supplied approval does not match falls through to a configurable default:
+
+```ts
+import { wrapMcpTools } from '@ai-sdk/policy';
+import { opaPolicy, wasmPolicyClient } from '@ai-sdk/policy/opa';
+
+const discovered = await mcpClient.tools();
+const client = await wasmPolicyClient({ wasm });
+
+const { tools, toolApproval } = wrapMcpTools(
+  discovered,
+  opaPolicy({ client, path: 'agent/call/decision' }),
+  { default: 'user-approval' }, // anything OPA does not match needs a human
+);
+
+await generateText({ model, tools, toolApproval, prompt });
+```
+
+Three useful defaults:
+
+- `'user-approval'` (the default) — uncovered tools require a human. Right choice when you trust the discovery source but want a safety net for tools you forgot about.
+- `'denied'` — uncovered tools are blocked. Right choice for hard allowlist mode: the OPA policy enumerates what's allowed; everything else is rejected before the model can call it.
+- `'approved'` — uncovered tools are allowed. Right choice only when the discovery source is fully trusted (rare; usually the wrong call for MCP).
+
+Despite the name, the helper works on any `Record<string, Tool>`, not just MCP-discovered tools.
+
 ## API
 
 ### `@ai-sdk/policy`
 
+- `wrapMcpTools(tools, approval, opts?)` — bundle a discovered tool set with a fallback approval policy so the resulting `toolApproval` configuration is total over the discovered surface. `opts.default` controls what happens to tools the supplied approval does not match (`'user-approval'` by default; use `'denied'` for hard allowlist mode).
 - `PolicyClient` — interface implemented by the OPA backends. Use directly if you want to plug in a non-OPA engine.
-- Type re-exports: `PolicyChecker`, `PolicyDecision` (from `@ai-sdk/provider-utils`).
+- Type re-exports: `PolicyChecker`, `PolicyDecision` (from `@ai-sdk/provider-utils`); helper type `WrappedMcpTools`.
 
 ### `@ai-sdk/policy/opa`
 
