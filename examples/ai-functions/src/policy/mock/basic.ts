@@ -142,6 +142,25 @@ async function demo(
   console.log(
     `invocations   : searchOrders=${searchOrdersInvocations}, deleteOrder=${deleteOrderInvocations}`,
   );
+
+  // Interpret the result so a reader unfamiliar with the policy engine sees
+  // exactly what each flow proved.
+  if (result.toolResults.length === 0 && result.toolCalls.length > 0) {
+    console.log(
+      `interpretation: toolApproval blocked ${toolName} before execution.`,
+    );
+  } else if (
+    result.toolResults.some(
+      r =>
+        r.type === 'tool-result' && (r.output as { ok?: boolean }).ok === false,
+    )
+  ) {
+    console.log(
+      `interpretation: dispatcher consulted policy.check() and propagated the deny.`,
+    );
+  } else {
+    console.log(`interpretation: call ran normally.`);
+  }
 }
 
 run(async () => {
