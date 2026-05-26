@@ -343,6 +343,53 @@ What changes per domain is only step 1 (the parsing) and step 5 (the actual side
 
 The SDK cannot force a tool author to make the check. A dispatcher written as `execute: async ({ cmd }) => exec(cmd)` bypasses the policy layer entirely. The framework's job is to make the right pattern obvious and one-step; that's what this section documents. For stronger guarantees against an actively adversarial tool author, run untrusted execution in an out-of-band sandbox (Vercel Sandbox, Firecracker, containers).
 
+## Rolling out a new policy safely: shadow mode
+
+Don't ship a new policy straight to enforce. The first version of any policy almost certainly denies things you didn't mean to deny, and you find out by breaking real agent runs. The fix is the same pattern Cloudflare uses for new rules and GitHub uses for new code-scanning checks: run the policy in **shadow mode** for a while, capture what it *would* have decided, inspect, fix, then graduate.
+
+`shadow(approval, opts)` wraps any `ToolApprovalConfiguration`. The wrapped policy is evaluated normally and the decision is reported via `onDecision`, but the SDK is told the call is approved regardless of what the policy said.
+
+```ts
+import { shadow } from '@ai-sdk/policy';
+import { opaPolicy, wasmPolicyClient } from '@ai-sdk/policy/opa';
+
+const client = await wasmPolicyClient({ wasm });
+
+const toolApproval = shadow(
+  opaPolicy({ client, path: 'agent/call/decision' }),
+  {
+    enforce: process.env.ENFORCE_POLICY === 'true',
+    onDecision: event => {
+      logger.info('policy.decision', {
+        tool: event.toolCall.toolName,
+        decision: event.decision.type,
+        reason: event.decision.reason,
+        enforced: event.enforced,
+        wouldBlock: event.decision.type === 'denied',
+      });
+    },
+  },
+);
+
+await generateText({ model, tools, toolApproval, prompt });
+```
+
+### Recommended rollout
+
+1. Write the policy. Test it locally with `opa test`.
+2. Wrap it in `shadow(...)` with `enforce: false` (the default) and an `onDecision` callback wired to your normal log / metrics pipeline.
+3. Run for a while in your real environment. Inspect events where `decision.type === 'denied'` or `'user-approval'`: these are the calls the policy *would* have changed.
+4. Fix anything wrong with the policy. Iterate from step 2.
+5. When the only `denied` / `user-approval` events are ones you actually want, flip `enforce: true`. The policy is now load-bearing.
+
+Each event carries both the policy's verdict (`decision`) and what the SDK actually acted on (`effective`). In shadow mode they disagree whenever the policy returned anything other than approved; in enforce mode they always agree. Compare them in your dashboard to spot drift.
+
+### Telemetry semantics
+
+`onDecision` is fired **fire-and-forget**: a slow or throwing logger does not block tool execution and cannot break enforcement. Errors thrown from the callback are swallowed. The contract is "enforcement first, observability second."
+
+If you want the opposite (enforcement waits for the audit log to commit), call your logger from inside the underlying `toolApproval` instead of through `shadow`.
+
 ## Scoping a discovered tool surface
 
 When tools come from somewhere external (MCP discovery, a plugin registry, a remote agent catalog) you do not get to write per-tool rules ahead of time — you don't know which tools the server will expose until runtime. The risk: any tool you forgot to write a rule for is silently allowed.
@@ -377,9 +424,10 @@ Despite the name, the helper works on any `Record<string, Tool>`, not just MCP-d
 
 ### `@ai-sdk/policy`
 
+- `shadow(approval, opts?)` — wrap any `ToolApprovalConfiguration` so the policy is evaluated and reported via `onDecision`, but the SDK acts as if every call was approved. Flip `opts.enforce: true` to graduate to real enforcement. Recommended starting point for any new policy.
 - `wrapMcpTools(tools, approval, opts?)` — bundle a discovered tool set with a fallback approval policy so the resulting `toolApproval` configuration is total over the discovered surface. `opts.default` controls what happens to tools the supplied approval does not match (`'user-approval'` by default; use `'denied'` for hard allowlist mode).
 - `PolicyClient` — interface implemented by the OPA backends. Use directly if you want to plug in a non-OPA engine.
-- Type re-exports: `PolicyChecker`, `PolicyDecision` (from `@ai-sdk/provider-utils`); helper type `WrappedMcpTools`.
+- Type re-exports: `PolicyChecker`, `PolicyDecision` (from `@ai-sdk/provider-utils`); helper types `WrappedMcpTools`, `PolicyDecisionEvent`.
 
 ### `@ai-sdk/policy/opa`
 
