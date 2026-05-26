@@ -1,6 +1,7 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { Context } from './context';
 import type { ModelMessage } from './model-message';
+import type { PolicyChecker } from './policy-checker';
 import type { Experimental_Sandbox as Sandbox } from './sandbox';
 import type {
   ToolExecuteFunction,
@@ -15,6 +16,7 @@ describe('tool execute function types', () => {
       abortSignal?: AbortSignal;
       context: { requestId: string };
       experimental_sandbox?: Sandbox;
+      policy?: PolicyChecker;
     }>();
   });
 

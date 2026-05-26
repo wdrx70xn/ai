@@ -1,5 +1,6 @@
 import type { Context } from './context';
 import type { ModelMessage } from './model-message';
+import type { PolicyChecker } from './policy-checker';
 import type { Experimental_Sandbox as Sandbox } from './sandbox';
 
 /**
@@ -41,6 +42,22 @@ export interface ToolExecutionOptions<
    * The sandbox environment that the tool is operating in.
    */
   experimental_sandbox?: Sandbox;
+
+  /**
+   * Evaluator for the active `toolApproval` policy.
+   *
+   * Composite tools (`bash`, `httpRequest`, `browserAction`, etc.) should call
+   * `policy.check(name, args)` before dispatching a nested action so that the
+   * same approval rules that gate direct model tool calls also gate actions
+   * dispatched through a coarser tool. Without this, an agent that holds both
+   * a granular tool (e.g. `git`) and a coarse one (e.g. `bash`) can launder a
+   * denied action through the coarser tool.
+   *
+   * Always provided by the SDK during normal dispatch. Optional in the type so
+   * that tests and tools that hand-construct `ToolExecutionOptions` are not
+   * broken by this addition.
+   */
+  policy?: PolicyChecker;
 }
 
 /**

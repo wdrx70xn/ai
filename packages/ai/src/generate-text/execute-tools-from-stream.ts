@@ -9,6 +9,7 @@ import type {
 } from '@ai-sdk/provider-utils';
 import type { TimeoutConfiguration } from '../prompt/request-options';
 import type { Telemetry } from '../telemetry/telemetry';
+import { buildPolicyChecker } from './build-policy-checker';
 import { executeToolCall } from './execute-tool-call';
 import { resolveToolApproval } from './resolve-tool-approval';
 import type { LanguageModelStreamPart } from './stream-language-model-call';
@@ -64,6 +65,15 @@ export function executeToolsFromStream<
   executeToolInTelemetryContext?: Telemetry['executeTool'];
 }): ReadableStream<ExecuteToolsStreamPart<TOOLS>> {
   const toolCallsToExecute: Array<TypedToolCall<TOOLS>> = [];
+
+  const policy = buildPolicyChecker({
+    tools,
+    toolApproval,
+    messages,
+    toolsContext,
+    runtimeContext,
+    generateId,
+  });
 
   // forward stream
   return stream.pipeThrough(
@@ -186,6 +196,7 @@ export function executeToolsFromStream<
                     timeout,
                     experimental_sandbox: sandbox,
                     toolsContext,
+                    policy,
                     onToolExecutionStart,
                     onToolExecutionEnd,
                     executeToolInTelemetryContext,

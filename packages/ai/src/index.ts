@@ -17,6 +17,8 @@ export {
   type InferSchema,
   type InferToolInput,
   type InferToolOutput,
+  type PolicyChecker,
+  type PolicyDecision,
   type Experimental_Sandbox,
   type Schema,
   type Tool,

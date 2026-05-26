@@ -15018,6 +15018,8 @@ describe('streamText', () => {
           toolCallId: 'call-1',
           context: undefined,
           messages: expect.any(Array),
+          experimental_sandbox: undefined,
+          policy: expect.objectContaining({ check: expect.any(Function) }),
         },
       );
     });
