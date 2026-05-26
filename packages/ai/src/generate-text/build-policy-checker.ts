@@ -1,11 +1,12 @@
-import type {
-  Context,
-  IdGenerator,
-  InferToolSetContext,
-  ModelMessage,
-  PolicyChecker,
-  PolicyDecision,
-  ToolSet,
+import {
+  NESTED_TOOL_CALL_PREFIX,
+  type Context,
+  type IdGenerator,
+  type InferToolSetContext,
+  type ModelMessage,
+  type PolicyChecker,
+  type PolicyDecision,
+  type ToolSet,
 } from '@ai-sdk/provider-utils';
 import { resolveToolApproval } from './resolve-tool-approval';
 import type { ToolApprovalConfiguration } from './tool-approval-configuration';
@@ -41,7 +42,7 @@ export function buildPolicyChecker<
     async check(toolName: string, args: unknown): Promise<PolicyDecision> {
       const syntheticToolCall = {
         type: 'tool-call',
-        toolCallId: `nested-${generateId()}`,
+        toolCallId: `${NESTED_TOOL_CALL_PREFIX}${generateId()}`,
         toolName,
         input: args,
         dynamic: true,

@@ -1,4 +1,13 @@
 /**
+ * Prefix used on the synthetic `toolCallId` that the SDK assigns to a
+ * {@link PolicyChecker.check} invocation from inside a composite tool's
+ * `execute`. Engines that want to distinguish direct model tool calls from
+ * nested ones (e.g. to record provenance in audit logs) can match this
+ * prefix on `toolCall.toolCallId`.
+ */
+export const NESTED_TOOL_CALL_PREFIX = 'nested-';
+
+/**
  * The decision returned by a {@link PolicyChecker} for a nested tool call.
  *
  * Structurally compatible with the narrowed object form of `ToolApprovalStatus`

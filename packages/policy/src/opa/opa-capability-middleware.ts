@@ -87,30 +87,38 @@ export function opaCapabilityMiddleware(opts: {
         return { ...params, tools: undefined };
       }
 
-      const allowed = extractAllowedNames(result);
+      const allowed = extractAllowedNameSet(result);
       if (allowed == null) {
         return { ...params, tools: undefined };
       }
 
-      const allowedSet = new Set(allowed);
-      const filtered = params.tools.filter(t =>
-        t.type === 'function' ? allowedSet.has(t.name) : allowedSet.has(t.id),
-      );
+      let removed = false;
+      const filtered = params.tools.filter(t => {
+        const keep =
+          t.type === 'function' ? allowed.has(t.name) : allowed.has(t.id);
+        if (!keep) removed = true;
+        return keep;
+      });
 
+      // Preserve object identity when nothing was dropped so downstream
+      // middleware can no-op on reference equality.
+      if (!removed) return params;
       return { ...params, tools: filtered };
     },
   };
 }
 
-function extractAllowedNames(result: unknown): string[] | null {
-  if (Array.isArray(result) && result.every(x => typeof x === 'string')) {
-    return result as string[];
+function extractAllowedNameSet(result: unknown): Set<string> | null {
+  const list = Array.isArray(result)
+    ? result
+    : result != null && typeof result === 'object'
+      ? (result as { tools?: unknown }).tools
+      : undefined;
+  if (!Array.isArray(list)) return null;
+  const out = new Set<string>();
+  for (const item of list) {
+    if (typeof item !== 'string') return null;
+    out.add(item);
   }
-  if (result != null && typeof result === 'object') {
-    const tools = (result as { tools?: unknown }).tools;
-    if (Array.isArray(tools) && tools.every(x => typeof x === 'string')) {
-      return tools as string[];
-    }
-  }
-  return null;
+  return out;
 }

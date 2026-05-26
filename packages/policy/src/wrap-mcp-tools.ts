@@ -4,13 +4,9 @@ import type {
   Tool,
   ToolSet,
 } from '@ai-sdk/provider-utils';
-import type { ToolApprovalConfiguration } from 'ai';
+import type { ToolApprovalConfiguration, ToolApprovalStatus } from 'ai';
 
-type ApprovalLiteralStatus =
-  | 'approved'
-  | 'denied'
-  | 'user-approval'
-  | 'not-applicable';
+type ApprovalLiteralStatus = Extract<ToolApprovalStatus, string>;
 
 /**
  * Result returned by {@link wrapMcpTools}: the original tool set plus a

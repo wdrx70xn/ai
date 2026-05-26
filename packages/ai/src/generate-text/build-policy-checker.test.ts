@@ -1,4 +1,4 @@
-import { tool } from '@ai-sdk/provider-utils';
+import { NESTED_TOOL_CALL_PREFIX, tool } from '@ai-sdk/provider-utils';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 import { buildPolicyChecker } from './build-policy-checker';
@@ -151,6 +151,6 @@ describe('buildPolicyChecker', () => {
 
     await checker.check('git', { args: ['status'] });
 
-    expect(seenCallId).toMatch(/^nested-/);
+    expect(seenCallId?.startsWith(NESTED_TOOL_CALL_PREFIX)).toBe(true);
   });
 });

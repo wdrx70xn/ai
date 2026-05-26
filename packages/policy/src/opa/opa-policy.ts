@@ -1,8 +1,9 @@
-import type {
-  Context,
-  InferToolSetContext,
-  ModelMessage,
-  ToolSet,
+import {
+  NESTED_TOOL_CALL_PREFIX,
+  type Context,
+  type InferToolSetContext,
+  type ModelMessage,
+  type ToolSet,
 } from '@ai-sdk/provider-utils';
 import type { ToolApprovalConfiguration } from 'ai';
 import type { PolicyClient } from '../policy-client';
@@ -75,7 +76,7 @@ export function opaPolicy<
         args: toolCall.input,
         messages,
         runtimeContext,
-        nested: toolCall.toolCallId.startsWith('nested-'),
+        nested: toolCall.toolCallId.startsWith(NESTED_TOOL_CALL_PREFIX),
       } satisfies DefaultOpaInput);
 
     const result = await client.evaluate(path, opaInput);
