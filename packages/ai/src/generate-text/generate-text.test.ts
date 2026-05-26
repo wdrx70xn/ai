@@ -5780,6 +5780,8 @@ describe('generateText', () => {
           toolCallId: 'call-1',
           messages: expect.any(Array),
           context: undefined,
+          experimental_sandbox: undefined,
+          policy: expect.objectContaining({ check: expect.any(Function) }),
         },
       );
     });
@@ -5884,6 +5886,8 @@ describe('generateText', () => {
           toolCallId: 'call-1',
           messages: expect.any(Array),
           context: undefined,
+          experimental_sandbox: undefined,
+          policy: expect.objectContaining({ check: expect.any(Function) }),
         },
       );
     });

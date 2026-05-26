@@ -59,6 +59,7 @@ import { setAbortTimeout } from '../util/set-abort-timeout';
 import { VERSION } from '../version';
 import type { ActiveTools } from './active-tools';
 import { calculateTokensPerSecond } from './calculate-tokens-per-second';
+import { buildPolicyChecker } from './build-policy-checker';
 import { collectToolApprovals } from './collect-tool-approvals';
 import type { ContentPart } from './content-part';
 import { executeToolCall } from './execute-tool-call';
@@ -563,6 +564,9 @@ export async function generateText<
         timeout,
         experimental_sandbox: sandbox,
         toolsContext,
+        toolApproval,
+        runtimeContext,
+        generateId,
         onToolExecutionStart: event =>
           notify({
             event,
@@ -999,6 +1003,9 @@ export async function generateText<
             timeout,
             experimental_sandbox: stepSandbox,
             toolsContext,
+            toolApproval,
+            runtimeContext,
+            generateId,
             onToolExecutionStart: event =>
               notify({
                 event,
@@ -1251,7 +1258,10 @@ export async function generateText<
   }
 }
 
-async function executeTools<TOOLS extends ToolSet>({
+async function executeTools<
+  TOOLS extends ToolSet,
+  RUNTIME_CONTEXT extends Context | unknown | never,
+>({
   toolCalls,
   tools,
   callId,
@@ -1260,6 +1270,9 @@ async function executeTools<TOOLS extends ToolSet>({
   timeout,
   experimental_sandbox: sandbox,
   toolsContext,
+  toolApproval,
+  runtimeContext,
+  generateId,
   onToolExecutionStart,
   onToolExecutionEnd,
   executeToolInTelemetryContext,
@@ -1272,6 +1285,9 @@ async function executeTools<TOOLS extends ToolSet>({
   timeout?: TimeoutConfiguration<TOOLS>;
   experimental_sandbox?: Sandbox;
   toolsContext: InferToolSetContext<TOOLS>;
+  toolApproval?: ToolApprovalConfiguration<TOOLS, RUNTIME_CONTEXT>;
+  runtimeContext: RUNTIME_CONTEXT;
+  generateId: IdGenerator;
   onToolExecutionStart?: OnToolExecutionStartCallback<TOOLS>;
   onToolExecutionEnd?: OnToolExecutionEndCallback<TOOLS>;
   executeToolInTelemetryContext?: Telemetry['executeTool'];
@@ -1281,6 +1297,15 @@ async function executeTools<TOOLS extends ToolSet>({
     toolExecutionMs: number;
   }>
 > {
+  const policy = buildPolicyChecker({
+    tools,
+    toolApproval,
+    messages,
+    toolsContext,
+    runtimeContext,
+    generateId,
+  });
+
   const toolResults = await Promise.all(
     toolCalls.map(
       async toolCall =>
@@ -1293,6 +1318,7 @@ async function executeTools<TOOLS extends ToolSet>({
           timeout,
           experimental_sandbox: sandbox,
           toolsContext,
+          policy,
           onToolExecutionStart,
           onToolExecutionEnd,
           executeToolInTelemetryContext,
